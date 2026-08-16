@@ -32,6 +32,12 @@ class ReportType(str, Enum):
       ≤500 字；傳統護理過程架構）。
     - ``TWNA_PROJECT``: 台灣護理學會護理專案（N4 送審，10 章，≤20 頁，摘要
       ≤300 字）。
+    - ``TNPA_NP_CASE``: 台灣專科護理師學會（TNPA）NP IV 實證案例報告（沿用
+      EBR_CASE 的 5A 七章骨架；依 TNPA 送審細則：摘要 ≤400 字、內文 ≤20 頁、
+      照護日至送審日 3 年內、送審 4/10 月）。
+    - ``TNPA_NP3_CASE``: TNPA NP III 病例報告（臨床病例報告，非實證 5A；章節
+      ＝摘要／前言／個案介紹／討論＋參考文獻；摘要 ≤400 字、內文 ≤20 頁、
+      照護日至送審日 3 年內；嚴格匿名：不得出現機構名稱/作者姓名/致謝）。
 
     ``READING`` / ``CASE`` 為 ``EBR_READING`` / ``EBR_CASE`` 的舊別名，保留
     向後相容。新程式碼請用有意義的長名。
@@ -41,6 +47,8 @@ class ReportType(str, Enum):
     EBR_CASE = "case"
     TWNA_CASE = "twna_case"
     TWNA_PROJECT = "twna_project"
+    TNPA_NP_CASE = "tnpa_np_case"
+    TNPA_NP3_CASE = "tnpa_np3_case"
 
     # Backwards-compat aliases (same enum member, different name)
     READING = "reading"
@@ -455,10 +463,13 @@ SectionName = Literal[
 
 
 class SectionSelfCheck(BaseModel):
-    uses_bi_jia_not_wo: bool
-    uses_ge_an_not_bing_ren: bool
-    formal_register_only: bool
-    cites_phrasing_bank: bool
+    # LLM self-reported QA flags. Default to False when the writer omits them —
+    # the authoritative checks run as Python guardrails in the `check` phase
+    # (voice_scan / compliance), so a missing self-report must not crash write.
+    uses_bi_jia_not_wo: bool = False
+    uses_ge_an_not_bing_ren: bool = False
+    formal_register_only: bool = False
+    cites_phrasing_bank: bool = False
 
 
 class Section(BaseModel):
@@ -466,7 +477,7 @@ class Section(BaseModel):
     content_zh: str
     word_count_estimate: int
     citation_placeholders: list[str] = Field(default_factory=list)
-    self_check: SectionSelfCheck
+    self_check: SectionSelfCheck = Field(default_factory=SectionSelfCheck)
 
 
 # ---------------------------------------------------------------------------

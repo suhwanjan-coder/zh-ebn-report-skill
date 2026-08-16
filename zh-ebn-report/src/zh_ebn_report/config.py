@@ -97,7 +97,7 @@ class PipelineConfig:
             max_parallel_sections=int(os.getenv("MAX_PARALLEL_SECTION_WRITERS", "6")),
             default_year_range=int(os.getenv("DEFAULT_TARGET_YEAR_RANGE", "5")),
             output_root=_PROJECT_ROOT / "output",
-            skill_root=_PROJECT_ROOT / "zh-ebn-report",
+            skill_root=_PROJECT_ROOT,
         )
 
 

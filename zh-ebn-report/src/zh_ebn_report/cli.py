@@ -99,7 +99,9 @@ def init(
             "--type",
             help=(
                 "reading (EBR 讀書報告 N1/N2) | case (EBR 案例分析 N3 TEBNA) | "
-                "twna_case (TWNA 個案報告 N2/N3) | twna_project (TWNA 護理專案 N4)"
+                "twna_case (TWNA 個案報告 N2/N3) | twna_project (TWNA 護理專案 N4) | "
+                "tnpa_np_case (TNPA 專師 NP IV 實證案例報告) | "
+                "tnpa_np3_case (TNPA 專師 NP III 病例報告)"
             ),
         ),
     ],
@@ -127,7 +129,12 @@ def init(
     _ethics_guard(accept)
     cfg = _load_cfg()
 
-    if type_ in (ReportType.EBR_CASE, ReportType.TWNA_CASE) and case_file is None:
+    if type_ in (
+        ReportType.EBR_CASE,
+        ReportType.TWNA_CASE,
+        ReportType.TNPA_NP_CASE,
+        ReportType.TNPA_NP3_CASE,
+    ) and case_file is None:
         console.print("[red]錯誤：案例分析／個案報告必須提供 --case-file（去識別化 YAML）[/]")
         raise typer.Exit(2)
 

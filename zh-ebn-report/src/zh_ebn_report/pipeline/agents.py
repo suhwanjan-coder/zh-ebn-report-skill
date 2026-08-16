@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any
+from typing import Any, Callable, TypeVar
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from ..clients.llm import LLMClient
+from ..clients.llm import LLMClient, ModelTier
 from ..config import PipelineConfig
 from ..models import (
     ApaCheckResult,
@@ -22,6 +22,7 @@ from ..models import (
     CaspResult,
     CaspTool,
     InterventionAudit,
+    OxfordLevel,
     PICO,
     PICOResult,
     Paper,
@@ -33,6 +34,50 @@ from ..models import (
     VoiceCheckResult,
 )
 from .prompts import build_system
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+async def _complete_validated(
+    llm: LLMClient,
+    model_cls: type[_ModelT],
+    *,
+    tier: ModelTier,
+    system_blocks: list[Any],
+    user_message: str,
+    max_tokens: int,
+    backfill: Callable[[dict], dict] | None = None,
+) -> _ModelT:
+    """complete_json + pydantic validation with one LLM repair retry.
+
+    On ValidationError, the schema error is fed back to the LLM once and the
+    completion is re-requested; this keeps a single non-conforming payload
+    from crashing the whole pipeline.
+    """
+    user = user_message
+    last_err: ValidationError | None = None
+    for _ in range(2):
+        data = await llm.complete_json(
+            tier=tier,
+            system_blocks=system_blocks,
+            user_message=user,
+            max_tokens=max_tokens,
+        )
+        if backfill is not None:
+            data = backfill(data)
+        try:
+            return model_cls.model_validate(data)
+        except ValidationError as exc:
+            last_err = exc
+            user = (
+                user_message
+                + "\n\n上一次輸出未通過結構驗證，錯誤如下：\n"
+                + str(exc)
+                + "\n請嚴格依 schema 修正後重新輸出完整 JSON。"
+            )
+    assert last_err is not None
+    raise last_err
+
 
 # ---------------------------------------------------------------------------
 # Subagent 1: Topic Gatekeeper
@@ -60,13 +105,14 @@ async def run_topic_gatekeeper(
         f"報告類型：{report_type}\n\n"
         "請輸出 JSON。"
     )
-    data = await llm.complete_json(
+    return await _complete_validated(
+        llm,
+        TopicVerdict,
         tier="haiku",
         system_blocks=system,
         user_message=user,
         max_tokens=2048,
     )
-    return TopicVerdict.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -93,13 +139,14 @@ async def run_pico_builder(
         f"臨床情境：\n{clinical_scenario_zh}\n\n"
         "請輸出 JSON（對應 PICOResult）。"
     )
-    data = await llm.complete_json(
+    return await _complete_validated(
+        llm,
+        PICOResult,
         tier="sonnet",
         system_blocks=system,
         user_message=user,
         max_tokens=2048,
     )
-    return PICOResult.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -125,16 +172,21 @@ async def run_search_strategist(
         f"年份範圍：{year_range_start}–{year_range_end}\n\n"
         "請輸出 JSON（對應 SearchStrategy）。"
     )
-    data = await llm.complete_json(
+    def _backfill(data: dict) -> dict:
+        # Inject year range in case LLM omits it
+        data.setdefault("year_range_start", year_range_start)
+        data.setdefault("year_range_end", year_range_end)
+        return data
+
+    return await _complete_validated(
+        llm,
+        SearchStrategy,
         tier="sonnet",
         system_blocks=system,
         user_message=user,
         max_tokens=3072,
+        backfill=_backfill,
     )
-    # Inject year range in case LLM omits it
-    data.setdefault("year_range_start", year_range_start)
-    data.setdefault("year_range_end", year_range_end)
-    return SearchStrategy.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +211,16 @@ _DESIGN_TO_TOOL: dict[StudyDesign, CaspTool] = {
     StudyDesign.OTHER: CaspTool.RCT,  # conservative default
 }
 
+# Oxford 2011 level implied by the CASP tool / study design, used only to
+# backfill when the LLM omits oxford_level_2011 (it is otherwise LLM-provided so
+# quality downgrades are respected).
+_TOOL_TO_OXFORD: dict[CaspTool, OxfordLevel] = {
+    CaspTool.SR: OxfordLevel.I,
+    CaspTool.RCT: OxfordLevel.II,
+    CaspTool.COHORT: OxfordLevel.III,
+    CaspTool.QUALITATIVE: OxfordLevel.V,
+}
+
 
 async def run_casp_appraiser(
     *,
@@ -174,20 +236,34 @@ async def run_casp_appraiser(
         skill_refs=["appraisal-tools.md", "phrasing-bank.md"],
         role_prompt_file=prompt_file,
     )
-    user = (
+    base_user = (
         f"PICO 背景：\n{pico.model_dump_json(indent=2)}\n\n"
         f"論文 metadata：\n{paper.model_dump_json(indent=2, exclude={'abstract'})}\n\n"
         f"摘要：\n{paper.abstract or '(尚無摘要；請依 title + journal + design 做保守評估)'}\n\n"
         "請輸出 JSON（對應 CaspResult），paper_doi 請填入論文的 DOI。"
     )
-    data = await llm.complete_json(
+    def _backfill(data: dict) -> dict:
+        # Backfill fields the pipeline derives deterministically, so a
+        # non-conforming LLM payload cannot crash the whole appraise phase:
+        #  - tool_used follows from paper.study_design (see _DESIGN_TO_TOOL); the
+        #    LLM sometimes emits non-CASP names such as "CASP-Quasi-Experimental".
+        #    Force it (overwrite whatever the LLM chose).
+        #  - oxford_level_2011 is otherwise LLM-provided (to respect quality
+        #    downgrades), but backfill by tool when the LLM omits it entirely.
+        data.setdefault("paper_doi", paper.doi)
+        data["tool_used"] = tool.value
+        data.setdefault("oxford_level_2011", _TOOL_TO_OXFORD[tool].value)
+        return data
+
+    return await _complete_validated(
+        llm,
+        CaspResult,
         tier="sonnet",
         system_blocks=system,
-        user_message=user,
+        user_message=base_user,
         max_tokens=4096,
+        backfill=_backfill,
     )
-    data.setdefault("paper_doi", paper.doi)
-    return CaspResult.model_validate(data)
 
 
 async def run_casp_parallel(
@@ -233,13 +309,14 @@ async def run_synthesiser(
         + "\n".join(c.model_dump_json() for c in casp_results)
         + "\n\n請輸出 JSON（對應 SynthesisResult）。"
     )
-    data = await llm.complete_json(
+    return await _complete_validated(
+        llm,
+        SynthesisResult,
         tier="opus",
         system_blocks=system,
         user_message=user,
         max_tokens=4096,
     )
-    return SynthesisResult.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -320,14 +397,19 @@ async def run_section_writer(
 
     user = "\n\n".join(parts) + "\n\n請輸出 JSON（對應 Section）。"
 
-    data = await llm.complete_json(
+    def _backfill(data: dict) -> dict:
+        data.setdefault("section_name", section_name)
+        return data
+
+    return await _complete_validated(
+        llm,
+        Section,
         tier="sonnet",
         system_blocks=system,
         user_message=user,
         max_tokens=4096,
+        backfill=_backfill,
     )
-    data.setdefault("section_name", section_name)
-    return Section.model_validate(data)
 
 
 async def run_section_writers_parallel(
@@ -364,13 +446,14 @@ async def run_voice_guard(
         role_prompt_file="voice_guard.md",
     )
     user = "以下為完整報告草稿；請逐段掃描違規並輸出 JSON：\n\n" + full_draft_zh
-    data = await llm.complete_json(
+    return await _complete_validated(
+        llm,
+        VoiceCheckResult,
         tier="haiku",
         system_blocks=system,
         user_message=user,
         max_tokens=3072,
     )
-    return VoiceCheckResult.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -400,20 +483,23 @@ async def run_apa_formatter(
         "請只對 format 做審查，並把 doi_validation_results 原樣帶到輸出。"
         " 輸出 JSON（對應 ApaCheckResult）。"
     )
-    data = await llm.complete_json(
+    def _backfill(data: dict) -> dict:
+        # Pass the CrossRef DOI results through untouched, and ensure the other
+        # required keys exist so a sparse LLM payload cannot crash validation.
+        data.setdefault("doi_validation_results", doi_validations_json)
+        data.setdefault("format_issues", [])
+        data.setdefault("apa_pass", False)
+        return data
+
+    return await _complete_validated(
+        llm,
+        ApaCheckResult,
         tier="haiku",
         system_blocks=system,
         user_message=user,
         max_tokens=3072,
+        backfill=_backfill,
     )
-    data.setdefault("doi_validation_results", doi_validations_json)
-    try:
-        return ApaCheckResult.model_validate(data)
-    except ValidationError:
-        # Fallback: ensure the three required keys exist.
-        data.setdefault("format_issues", [])
-        data.setdefault("apa_pass", False)
-        return ApaCheckResult.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -438,13 +524,14 @@ async def run_case_narrator(
         f"已去識別化個案資料:\n{case_details.model_dump_json(indent=2)}\n\n"
         "請輸出 JSON（對應 CaseNarrative）。"
     )
-    data = await llm.complete_json(
+    return await _complete_validated(
+        llm,
+        CaseNarrative,
         tier="sonnet",
         system_blocks=system,
         user_message=user,
         max_tokens=4096,
     )
-    return CaseNarrative.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -477,13 +564,14 @@ async def run_apply_auditor(
         f"偏差：{deviations_from_plan or '(使用者未提供)'}\n\n"
         "請輸出 JSON（對應 InterventionAudit）。"
     )
-    data = await llm.complete_json(
+    audit = await _complete_validated(
+        llm,
+        InterventionAudit,
         tier="sonnet",
         system_blocks=system,
         user_message=user,
         max_tokens=4096,
     )
-    audit = InterventionAudit.model_validate(data)
     # M7: overwrite warning_too_perfect with deterministic OR of
     #    (LLM's self-reported flag) ∨ (derived-from-observations flag).
     # "完美無瑕" 情境：所有 post 觀察與 pre 完全相同（沒改變）或 100% 達標。

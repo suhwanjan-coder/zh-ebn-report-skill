@@ -51,7 +51,7 @@ ModelTier = Literal["haiku", "sonnet", "opus"]
 # Per-subprocess timeout. The longest single call in the pipeline today is
 # the Opus synthesiser on ~20KB of CASP JSON — in practice under 90s. This
 # is the upper bound before tenacity retries.
-_DEFAULT_SUBPROCESS_TIMEOUT_S = 180
+_DEFAULT_SUBPROCESS_TIMEOUT_S = 600
 
 
 class ClaudeCodeCliError(RuntimeError):
@@ -172,6 +172,13 @@ class ClaudeCodeCliClient:
                 "json",
                 "--input-format",
                 "text",
+                # Load NO MCP servers in the nested subprocess. Without this the
+                # child cold-starts the user's full MCP set (notebooklm, obsidian,
+                # computer-use, interactive-auth servers…) on every call, which is
+                # slow and can hang the whole write phase.
+                "--strict-mcp-config",
+                "--mcp-config",
+                '{"mcpServers":{}}',
                 "--append-system-prompt-file",
                 str(sys_path),
                 stdin=asyncio.subprocess.PIPE,

@@ -8,7 +8,7 @@ read from here — never hard-code a word range elsewhere.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 
@@ -146,6 +146,55 @@ CASE_SECTION_ORDER: tuple[SectionSpec, ...] = (
         word_range=WordRange(200, 400),
         required=True,
         description="回應 PICO、個案貢獻、對臨床與未來研究的建議。",
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# TNPA 專科護理師 NP IV 實證案例報告（台灣專科護理師學會送審）
+# ---------------------------------------------------------------------------
+# 與 EBR_CASE 共用 5A 七章骨架（方法論一致：PICO→搜尋→CASP→應用→評值）。
+# 依 TNPA 進階制度送審細則的唯一格式差異：摘要放寬至 ≤400 字（case 為 ≤300）；
+# 內文 ≤20 頁與 case 相同。送審單位、評分表、封面屬「外殼」差異，由送審者套用。
+TNPA_NP_CASE_SECTION_ORDER: tuple[SectionSpec, ...] = tuple(
+    replace(s, word_range=WordRange(200, 400)) if s.name == "摘要" else s
+    for s in CASE_SECTION_ORDER
+)
+
+
+# ---------------------------------------------------------------------------
+# TNPA 專科護理師 NP III 病例報告（台灣專科護理師學會送審）
+# ---------------------------------------------------------------------------
+# 臨床病例報告，非實證 5A：依 NP III 病例報告送審作業細則，章節＝主題、摘要、
+# 前言、案例介紹、討論、參考文獻（主題＝報告題目；參考文獻由 Quarto/CSL 產出）。
+# 此處「個案介紹」對應細則之「案例介紹」（沿用既有章名與 prompt，僅一字之差，
+# 送審時可自行改標題用字）。摘要 ≤400 字、內文 ≤20 頁。
+TNPA_NP3_CASE_SECTION_ORDER: tuple[SectionSpec, ...] = (
+    SectionSpec(
+        name="摘要",
+        word_range=WordRange(200, 400),
+        required=True,
+        description="單段；個案特徵、臨床困境、診斷與處置、主要發現與結論。≤400 字。不得含機構名/姓名。",
+    ),
+    SectionSpec(
+        name="前言",
+        word_range=WordRange(300, 900),
+        required=True,
+        must_cite_at_least=2,
+        description="疾病背景與重要性、流行病學、為何值得報告；引出本案。",
+    ),
+    SectionSpec(
+        name="個案介紹",
+        word_range=WordRange(500, 2000),
+        required=True,
+        description="主訴與病史、身體與檢驗評估、臨床病程、診斷與處置、治療反應與追蹤（去識別化）。",
+    ),
+    SectionSpec(
+        name="討論",
+        word_range=WordRange(800, 3500),
+        required=True,
+        must_cite_at_least=3,
+        description="對照文獻闡述診斷思路、處置依據、與既有報告之異同、臨床啟示與限制。",
     ),
 )
 
@@ -309,6 +358,8 @@ PAGE_LIMIT_BY_KIND: dict[str, int] = {
     "case": 20,           # 實證案例分析；TEBNA 投稿約 15–25 頁
     "twna_case": 16,      # TWNA 硬規：內文 ≤16 頁
     "twna_project": 20,   # TWNA 硬規：內文 ≤20 頁
+    "tnpa_np_case": 20,   # TNPA 送審細則：內文 ≤20 頁
+    "tnpa_np3_case": 20,  # TNPA NP III 病例報告：內文 ≤20 頁
 }
 
 TOTAL_BODY_CJK_LIMIT_BY_KIND: dict[str, int] = {
@@ -316,6 +367,8 @@ TOTAL_BODY_CJK_LIMIT_BY_KIND: dict[str, int] = {
     "case": 20 * 600,
     "twna_case": 16 * 600,
     "twna_project": 20 * 600,
+    "tnpa_np_case": 20 * 600,
+    "tnpa_np3_case": 20 * 600,
 }
 
 MIN_REFERENCES_BY_KIND: dict[str, int] = {
@@ -323,6 +376,8 @@ MIN_REFERENCES_BY_KIND: dict[str, int] = {
     "case": 5,
     "twna_case": 5,       # 審查評分表要求「近期中英文獻」，實務常見 5-10 篇
     "twna_project": 10,   # 護理專案範圍較廣，文獻需更完整
+    "tnpa_np_case": 5,    # 同 case：實證案例報告至少納入數篇高證據文獻
+    "tnpa_np3_case": 3,   # 病例報告：前言+討論引用即可，給較寬下限
 }
 
 
@@ -341,15 +396,25 @@ SECTION_WORD_RANGE_TWNA_CASE: dict[str, WordRange] = {
 SECTION_WORD_RANGE_TWNA_PROJECT: dict[str, WordRange] = {
     s.name: s.word_range for s in TWNA_PROJECT_SECTION_ORDER
 }
+SECTION_WORD_RANGE_TNPA_NP_CASE: dict[str, WordRange] = {
+    s.name: s.word_range for s in TNPA_NP_CASE_SECTION_ORDER
+}
+SECTION_WORD_RANGE_TNPA_NP3_CASE: dict[str, WordRange] = {
+    s.name: s.word_range for s in TNPA_NP3_CASE_SECTION_ORDER
+}
 
 
-ReportKind = Literal["reading", "case", "twna_case", "twna_project"]
+ReportKind = Literal[
+    "reading", "case", "twna_case", "twna_project", "tnpa_np_case", "tnpa_np3_case"
+]
 
 _ORDER_BY_KIND: dict[str, tuple[SectionSpec, ...]] = {
     "reading": READING_SECTION_ORDER,
     "case": CASE_SECTION_ORDER,
     "twna_case": TWNA_CASE_SECTION_ORDER,
     "twna_project": TWNA_PROJECT_SECTION_ORDER,
+    "tnpa_np_case": TNPA_NP_CASE_SECTION_ORDER,
+    "tnpa_np3_case": TNPA_NP3_CASE_SECTION_ORDER,
 }
 
 _WORD_RANGE_BY_KIND: dict[str, dict[str, WordRange]] = {
@@ -357,6 +422,8 @@ _WORD_RANGE_BY_KIND: dict[str, dict[str, WordRange]] = {
     "case": SECTION_WORD_RANGE_CASE,
     "twna_case": SECTION_WORD_RANGE_TWNA_CASE,
     "twna_project": SECTION_WORD_RANGE_TWNA_PROJECT,
+    "tnpa_np_case": SECTION_WORD_RANGE_TNPA_NP_CASE,
+    "tnpa_np3_case": SECTION_WORD_RANGE_TNPA_NP3_CASE,
 }
 
 
