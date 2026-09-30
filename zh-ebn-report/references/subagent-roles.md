@@ -34,7 +34,7 @@ Phase 6    分節撰寫員 × 6（並行）
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 1，Ask 前置 |
-| 模型建議 | Haiku 4.5 |
+| 模型建議 | `haiku` |
 | 並行 | 否 |
 | 知識來源（必讀） | `references/topic-selection.md` |
 
@@ -69,7 +69,7 @@ alternative_topics_zh: [string]  # 若 verdict 非 feasible，給 2-3 個替代�
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 2，Ask |
-| 模型建議 | Sonnet 4.6 |
+| 模型建議 | `sonnet` |
 | 並行 | 否 |
 | 知識來源 | `references/pico-and-search.md`（PICO 四要素與問題型態） |
 
@@ -107,7 +107,7 @@ validation_warnings: [string]   # 例："Outcome 仍有模糊感"
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 3，Acquire |
-| 模型建議 | Sonnet 4.6 |
+| 模型建議 | `sonnet` |
 | 並行 | 否（但與後續 API 呼叫並行執行）|
 | 知識來源 | `references/pico-and-search.md`（六件套、欄位碼速查、100–1000 校準、引文追蹤、去重） |
 
@@ -152,7 +152,7 @@ tuning_plan:                    # 若實際篇數不在 100-1000，接下來怎�
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 4，每一篇納入文獻一個 agent |
-| 模型建議 | Sonnet 4.6 |
+| 模型建議 | `sonnet` |
 | 並行 | **是**（`asyncio.gather`，一次 N 個，N = 納入篇數） |
 | 知識來源 | `references/appraisal-tools.md` + `references/phrasing-bank.md`（CASP 評論的標準句型） |
 
@@ -200,7 +200,7 @@ warnings:                       # 會被 CP5 標紅的訊號
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 5，所有 CASP 評讀員完成後 |
-| 模型建議 | **Opus 4.7**（跨篇推論、矛盾偵測需要最強模型） |
+| 模型建議 | **`opus`**（跨篇推論、矛盾偵測需要最強模型） |
 | 並行 | 否 |
 | 知識來源 | `references/appraisal-tools.md` + `references/phrasing-bank.md`（「綜整」段的句型） |
 
@@ -237,7 +237,7 @@ limitations_zh: [string]
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 6，撰稿 |
-| 模型建議 | Sonnet 4.6 |
+| 模型建議 | `sonnet` |
 | 並行 | **是**（讀書報告 4 節同時 / 案例分析 6 節同時） |
 | 知識來源 | `references/phrasing-bank.md`（句型庫）+ 對應章節模板（`reading-report-template.md` 或 `case-report-template.md`） |
 
@@ -287,7 +287,7 @@ self_check:
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 7，定稿前 |
-| 模型建議 | Haiku 4.5 |
+| 模型建議 | `haiku` |
 | 並行 | **是**（與角色 8 APA 格式員並行） |
 | 知識來源 | `SKILL.md` 的「寫作風格核心守則」+ `references/phrasing-bank.md` |
 
@@ -320,7 +320,7 @@ pass_threshold_met: bool        # 0 high + ≤3 medium 才算 pass
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 7，與角色 7 並行 |
-| 模型建議 | Haiku 4.5（呼叫 CrossRef 由 Python 處理，LLM 只做格式審查） |
+| 模型建議 | `haiku`（呼叫 CrossRef 由 Python 處理，LLM 只做格式審查） |
 | 並行 | **是** |
 | 知識來源 | `references/phrasing-bank.md` 的 APA 7 範例 |
 
@@ -355,7 +355,7 @@ apa_pass: bool                   # 零 format_issues + 所有 DOI 驗證通過
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 5.5（案例分析專用） |
-| 模型建議 | Sonnet 4.6 |
+| 模型建議 | `sonnet` |
 | 並行 | 與角色 10 可並行 |
 | 知識來源 | `references/case-report-template.md` + `references/phrasing-bank.md` |
 
@@ -400,7 +400,7 @@ direct_quotes:                       # 個案/家屬/護理師原話（已以引
 | 屬性 | 值 |
 |---|---|
 | 觸發時機 | Phase 5.5，與角色 9 可並行 |
-| 模型建議 | Sonnet 4.6 |
+| 模型建議 | `sonnet` |
 | 並行 | 是 |
 | 知識來源 | `references/case-report-template.md`（Apply/Audit 結構）+ `references/phrasing-bank.md` |
 

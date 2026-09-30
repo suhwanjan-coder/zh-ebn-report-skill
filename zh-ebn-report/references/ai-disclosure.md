@@ -54,7 +54,7 @@ AI 具體協助範圍包括：（一）將臨床問題結構化為 PICO；（二
 ```
 
 **需要替換的變項**：
-- `{model_name}` — 如 `claude-sonnet-4-6`、`claude-haiku-4-5-20251001`、`claude-opus-4-7`
+- `{model_name}` — 實際使用的模型 ID（以當次執行紀錄為準）
 - `{model_version}` — 如 `2026-01 版`
 - `{pipeline_version}` — 如 `0.1.0`
 

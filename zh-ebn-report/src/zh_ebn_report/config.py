@@ -39,7 +39,7 @@ class LlmConfig:
         backend = os.getenv("LLM_BACKEND", "claude_code").lower()
         key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("LLM_API_KEY", "")
         base = os.getenv("ANTHROPIC_BASE_URL") or os.getenv("LLM_API_BASE") or None
-        default = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
+        default = os.getenv("LLM_MODEL", "claude-sonnet-5")
         # Model IDs for the SDK backend. The CLI backend uses aliases like
         # "haiku"/"sonnet"/"opus" natively, but also accepts full IDs.
         return cls(
@@ -48,8 +48,8 @@ class LlmConfig:
             base_url=base,
             default_model=default,
             haiku_model=os.getenv("LLM_MODEL_HAIKU", "claude-haiku-4-5-20251001"),
-            sonnet_model=os.getenv("LLM_MODEL_SONNET", "claude-sonnet-4-6"),
-            opus_model=os.getenv("LLM_MODEL_OPUS", "claude-opus-4-7"),
+            sonnet_model=os.getenv("LLM_MODEL_SONNET", "claude-sonnet-5"),
+            opus_model=os.getenv("LLM_MODEL_OPUS", "claude-opus-5-5"),
         )
 
 
