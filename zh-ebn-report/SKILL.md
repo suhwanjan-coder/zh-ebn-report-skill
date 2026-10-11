@@ -203,6 +203,7 @@ Pipeline 最終輸出 **`<報告>-DRAFT.docx`**（Quarto → pandoc → DOCX，A
 - `references/topic-selection.md` — 選題指引與地雷主題
 - `references/subagent-roles.md` — 10 個 subagent 分工與輸入/輸出契約（Python pipeline 對應）
 - `references/ai-disclosure.md` — 2026 版台灣護理 AI 使用規範與揭露/Audit/Subagent 紀錄的三份模板
+- `references/gordon-11-patterns.md` — Gordon 11 項功能性健康型態（TWNA 護理評估節標準骨架）
 
 看到使用者的需求後，**先決定要讀哪幾份 reference**，不要全部塞進脈絡。
 

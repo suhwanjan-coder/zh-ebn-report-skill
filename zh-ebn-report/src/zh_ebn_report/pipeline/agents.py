@@ -338,6 +338,8 @@ _SECTION_PROMPT_FILES: dict[str, str] = {
     "方法": "section_writer_方法.md",
     "個案介紹": "section_writer_個案介紹.md",
     "應用與評值": "section_writer_應用.md",
+    # TWNA 個案報告 / 護理專案專用
+    "護理評估": "section_writer_護理評估.md",
 }
 
 

@@ -199,6 +199,10 @@ def search(
     cochrane_ris: Annotated[Optional[Path], typer.Option()] = None,
     cinahl_ris: Annotated[Optional[Path], typer.Option()] = None,
     airiti_ris: Annotated[Optional[Path], typer.Option()] = None,
+    airiti_csv: Annotated[
+        Optional[Path],
+        typer.Option(help="華藝書目匯出 CSV 檔（標題/作者/年份/類型等欄）"),
+    ] = None,
     auto_yes: Annotated[bool, typer.Option("--yes")] = False,
 ) -> None:
     """Phase 3：搜尋策略師 → CP3 → DB 檢索 + 去重 + DOI 驗證 → CP4。"""
@@ -212,7 +216,11 @@ def search(
         imports[SourceDB.COCHRANE] = cochrane_ris
     if cinahl_ris:
         imports[SourceDB.CINAHL] = cinahl_ris
-    if airiti_ris:
+    # Airiti can be supplied as RIS OR CSV; CSV takes precedence when both
+    # are set (CSV has thesis-type info RIS lacks).
+    if airiti_csv:
+        imports[SourceDB.AIRITI] = airiti_csv
+    elif airiti_ris:
         imports[SourceDB.AIRITI] = airiti_ris
 
     asyncio.run(orch.phase_search(state, manual_imports=imports or None))

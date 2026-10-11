@@ -15,6 +15,19 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+_CJK_ONLY_RE = re.compile(r"^[一-鿿]+$")
+
+
+def _is_cjk_only(name: str) -> bool:
+    """Return True when ``name`` is entirely CJK ideographs (no spaces/ASCII).
+
+    Used by :meth:`Paper.citekey` to detect Chinese author names (Airiti,
+    Taiwan thesis system) that would otherwise fail the PubMed-style
+    surname-first heuristic.
+    """
+
+    return bool(_CJK_ONLY_RE.match(name.strip()))
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -320,15 +333,23 @@ class Paper(BaseModel):
         PubMed delivers authors as "Surname Initials" (e.g., "Kumar R"), so the
         surname is the *first* whitespace-separated token — not the last. For
         "Surname, Initials" comma-form we also take the leading token.
+
+        Chinese names (Airiti, Taiwan thesis system) come without whitespace
+        (e.g., "張小明"); ``split()`` would return the full name as one token,
+        so we special-case CJK-only names by taking the first two characters
+        as surname — matches the convention in Chinese academic citation.
         """
 
         if not self.authors:
             surname = "Anon"
         else:
             first_author = self.authors[0].strip()
-            # Strip trailing comma if present ("Kumar, R" → ["Kumar,", "R"])
-            head = first_author.split()[0] if first_author else "Anon"
-            surname = head.rstrip(",")
+            if _is_cjk_only(first_author) and len(first_author) >= 2:
+                surname = first_author[:2]
+            else:
+                # Strip trailing comma if present ("Kumar, R" → ["Kumar,", "R"])
+                head = first_author.split()[0] if first_author else "Anon"
+                surname = head.rstrip(",")
         first_word = (self.title.split(" ", 1)[0] if self.title else "paper").lower()
         safe_word = "".join(c for c in first_word if c.isalnum())[:10]
         return f"{surname.lower()}{self.year}{safe_word}"

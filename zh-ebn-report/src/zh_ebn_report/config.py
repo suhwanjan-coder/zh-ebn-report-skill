@@ -89,6 +89,7 @@ class PipelineConfig:
     default_year_range: int
     output_root: Path
     skill_root: Path
+    enable_keyword_tuner: bool
 
     @classmethod
     def from_env(cls) -> PipelineConfig:
@@ -98,6 +99,10 @@ class PipelineConfig:
             default_year_range=int(os.getenv("DEFAULT_TARGET_YEAR_RANGE", "5")),
             output_root=_PROJECT_ROOT / "output",
             skill_root=_PROJECT_ROOT,
+            # v0.8: optional LLM-driven keyword tuner for PubMed. Off by
+            # default; set ENABLE_KEYWORD_TUNER=1 to enable 1-round retry
+            # when initial hits are out of the 100–1000 sweet spot.
+            enable_keyword_tuner=os.getenv("ENABLE_KEYWORD_TUNER", "0") == "1",
         )
 
 

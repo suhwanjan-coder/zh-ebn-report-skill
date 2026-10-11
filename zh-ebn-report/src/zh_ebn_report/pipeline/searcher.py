@@ -14,6 +14,7 @@ from typing import Any
 
 from ..clients.crossref import CrossrefClient, DoiCheck
 from ..clients.embase import EmbaseClient
+from ..clients.llm import LLMClient
 from ..clients.manual_import import load_manual_import, record_to_paper
 from ..clients.pubmed import PubMedClient
 from ..clients.scopus import ScopusClient
@@ -28,6 +29,7 @@ from ..models import (
     StudyDesign,
 )
 from ..utils.dedup import dedup
+from .keyword_tuner import needs_tuning, pick_better, tune_pubmed_query
 
 log = logging.getLogger(__name__)
 
@@ -38,19 +40,24 @@ async def run_searches(
     strategy: SearchStrategy,
     manual_imports: dict[SourceDB, Path] | None = None,
     max_per_db: int = 100,
+    llm: LLMClient | None = None,
 ) -> SearchResult:
     """Execute search strategy across available APIs, then ingest manual imports.
 
     Automatic databases (PubMed / Scopus / Embase) are queried in parallel.
     Manual databases (Cochrane / CINAHL / Airiti) are loaded from user-provided
     RIS/BibTeX files.
+
+    When ``llm`` is provided AND ``app_cfg.pipeline.enable_keyword_tuner`` is
+    set, the PubMed arm will fire a single tuner retry if the initial hit
+    count falls outside the 100–1000 sweet spot.
     """
 
     history: list[SearchHistoryRow] = []
     hits: list[Paper] = []
 
     await asyncio.gather(
-        _search_pubmed(app_cfg, strategy, hits, history, max_per_db),
+        _search_pubmed(app_cfg, strategy, hits, history, max_per_db, llm=llm),
         _search_scopus(app_cfg, strategy, hits, history, max_per_db),
         _search_embase(app_cfg, strategy, hits, history, max_per_db),
     )
@@ -118,6 +125,8 @@ async def _search_pubmed(
     hits: list[Paper],
     history: list[SearchHistoryRow],
     max_per_db: int,
+    *,
+    llm: LLMClient | None = None,
 ) -> None:
     query = strategy.six_piece_strategy.boolean_query_pubmed
     field_limit = strategy.six_piece_strategy.field_codes_used.get("pubmed", "(none)")
@@ -126,10 +135,8 @@ async def _search_pubmed(
     async with PubMedClient(app_cfg.dbs.pubmed) as client:
         try:
             total = await client.count(query)
-            pmids = await client.search_pmids(query, retmax=min(max_per_db, total))
-            metadata = await client.fetch_metadata(pmids)
         except Exception as exc:  # noqa: BLE001
-            log.warning("PubMed search failed: %s", exc)
+            log.warning("PubMed count failed: %s", exc)
             history.append(
                 SearchHistoryRow(
                     keywords=query,
@@ -141,6 +148,75 @@ async def _search_pubmed(
                     exclusion_criteria=str(exc),
                     included_count=0,
                     note="PubMed API 錯誤",
+                )
+            )
+            return
+
+        # v0.8 tuner: if the initial hit count is out of the 100–1000 sweet
+        # spot AND the caller supplied an LLM AND the feature is enabled,
+        # ask the tuner for a new Boolean string and run ONE more count.
+        tuned_note: str | None = None
+        if (
+            llm is not None
+            and app_cfg.pipeline.enable_keyword_tuner
+            and needs_tuning(total)
+        ):
+            try:
+                tuned = await tune_pubmed_query(
+                    llm=llm,
+                    cfg=app_cfg.pipeline,
+                    original_query=query,
+                    hit_count=total,
+                    if_too_narrow=strategy.tuning_plan.if_too_narrow,
+                    if_too_wide=strategy.tuning_plan.if_too_wide,
+                )
+                new_total = await client.count(tuned.new_query)
+                history.append(
+                    SearchHistoryRow(
+                        keywords=query,
+                        database=SourceDB.PUBMED,
+                        field_limit=field_limit,
+                        initial_hits=total,
+                        deduplicated_hits=0,
+                        inclusion_criteria="(初輪，未取件)",
+                        exclusion_criteria="(初輪，未取件)",
+                        included_count=0,
+                        note=(
+                            f"初輪 {total} 篇超出甜蜜區；交予 keyword_tuner 調整"
+                        ),
+                    )
+                )
+                query, total, picked_tag = pick_better(
+                    orig_query=query,
+                    orig_hits=total,
+                    new_query=tuned.new_query,
+                    new_hits=new_total,
+                )
+                tuned_note = (
+                    f"{picked_tag}；tuner 建議 {new_total} 篇；"
+                    f"採用：{'新字串' if query == tuned.new_query else '原字串'}；"
+                    f"rationale：{tuned.rationale_zh}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("keyword_tuner failed: %s — keeping original query", exc)
+                tuned_note = f"tuner 錯誤：{exc}"
+
+        try:
+            pmids = await client.search_pmids(query, retmax=min(max_per_db, total))
+            metadata = await client.fetch_metadata(pmids)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("PubMed fetch failed: %s", exc)
+            history.append(
+                SearchHistoryRow(
+                    keywords=query,
+                    database=SourceDB.PUBMED,
+                    field_limit=field_limit,
+                    initial_hits=total,
+                    deduplicated_hits=0,
+                    inclusion_criteria="(未執行)",
+                    exclusion_criteria=str(exc),
+                    included_count=0,
+                    note=tuned_note or "PubMed API 錯誤（fetch 階段）",
                 )
             )
             return
@@ -163,6 +239,7 @@ async def _search_pubmed(
             )
         )
     hits.extend(added)
+    base_note = f"PubMed 初命中 {total}，抓取上限 {max_per_db}，實際取 {initial}"
     history.append(
         SearchHistoryRow(
             keywords=query,
@@ -173,7 +250,7 @@ async def _search_pubmed(
             inclusion_criteria="符合 Boolean、年份、語言",
             exclusion_criteria="超出甜蜜區/不符 PICO（後續篩選）",
             included_count=initial,
-            note=f"PubMed 初命中 {total}，抓取上限 {max_per_db}，實際取 {initial}",
+            note=f"{base_note}；{tuned_note}" if tuned_note else base_note,
         )
     )
 

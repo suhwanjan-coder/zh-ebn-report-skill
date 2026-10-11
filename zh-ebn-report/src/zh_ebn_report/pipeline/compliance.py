@@ -246,6 +246,9 @@ def check_sections(state: RunState, *, kind: ReportKind) -> ComplianceReport:
     # 4h. 所有引用的 citekey 必須對應到實際 Paper（防 LLM 捏造 APA 引用；A2b）。
     report.issues.extend(_check_citation_keys_exist(sections_by_name, papers))
 
+    # 4i. TWNA 護理評估 必須覆蓋 Gordon 11 項（≥ 9/11）。
+    report.issues.extend(_check_gordon_11_coverage(sections_by_name, kind=kind))
+
     # 5. Total-body length (hard page cap for TWNA submissions)
     report.issues.extend(_check_total_length(state, kind=kind))
 
@@ -501,6 +504,69 @@ def _check_absolute_language(
                 )
             )
     return issues
+
+
+# Gordon 11 FHP keyword groups. Each tuple is a set of alternative tokens
+# for ONE pattern — the section satisfies the pattern if ANY token appears.
+# Order matches the canonical numbering (see references/gordon-11-patterns.md).
+_GORDON_11_KEYWORDS: tuple[tuple[str, ...], ...] = (
+    ("健康認知", "健康處理", "健康管理"),
+    ("營養", "代謝", "飲食", "進食"),
+    ("排泄", "排便", "排尿"),
+    ("活動", "運動", "ADL"),
+    ("睡眠", "休息"),
+    ("認知", "感受", "疼痛", "意識"),  # 認知-感受 (sensory)
+    ("自我感受", "自我概念", "身體心像", "自尊"),
+    ("角色", "關係", "家庭", "支持系統"),
+    ("性", "生殖"),
+    ("因應", "壓力", "情緒"),
+    ("價值", "信念", "宗教"),
+)
+_GORDON_MIN_COVERED = 9  # of 11; flexible for sensitive patterns (e.g. 第 9)
+
+
+def _check_gordon_11_coverage(
+    sections_by_name: dict[str, Section],
+    *,
+    kind: ReportKind,
+) -> list[ComplianceIssue]:
+    """Ensure the TWNA 護理評估 section exercises Gordon's 11 FHP framework.
+
+    Only applies to TWNA kinds (`twna_case`, `twna_project`). Reading /
+    case analysis reports use a different assessment structure.
+
+    Scoring is per-pattern any-token-matches (case-insensitive, whole-string
+    substring match). Requires ≥ :data:`_GORDON_MIN_COVERED` of 11 to
+    accommodate sensitive patterns (性-生殖, 價值-信念) legitimately skipped
+    in ICU / pediatric / acute contexts.
+    """
+
+    if kind not in ("twna_case", "twna_project"):
+        return []
+    sec = sections_by_name.get("護理評估")
+    if sec is None:
+        return []  # missing_section rule elsewhere already catches absence
+    body = sec.content_zh
+    covered: list[int] = []
+    missing_labels: list[str] = []
+    for idx, aliases in enumerate(_GORDON_11_KEYWORDS, start=1):
+        if any(alias in body for alias in aliases):
+            covered.append(idx)
+        else:
+            missing_labels.append(f"{idx}({aliases[0]})")
+    if len(covered) < _GORDON_MIN_COVERED:
+        return [
+            ComplianceIssue(
+                section="護理評估",
+                rule="gordon_11_incomplete",
+                detail=(
+                    f"Gordon 11 項只覆蓋 {len(covered)} 項（需 ≥ "
+                    f"{_GORDON_MIN_COVERED}）；遺漏："
+                    + ", ".join(missing_labels)
+                ),
+            )
+        ]
+    return []
 
 
 def _check_abstract_no_citations(

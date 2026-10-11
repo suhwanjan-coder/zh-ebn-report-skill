@@ -162,11 +162,14 @@ class Orchestrator:
         if choice == "重跑":
             raise RuntimeError("使用者於 CP3 要求重跑搜尋策略")
 
-        # Execute the actual searches
+        # Execute the actual searches. Hand the audited LLM wrapper to the
+        # searcher so it can invoke the keyword_tuner if PubMed hits fall
+        # outside the 100–1000 sweet spot (v0.8; gated by ENABLE_KEYWORD_TUNER).
         result = await run_searches(
             app_cfg=self.app,
             strategy=strategy,
             manual_imports=manual_imports,
+            llm=self.llm,
         )
         state.search_result = result
         state.current_phase = PipelinePhase.SEARCH
